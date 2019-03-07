@@ -25,7 +25,7 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.intersphinx',
               'sphinx.ext.inheritance_diagram',
               'sphinx.ext.mathjax',
-			  'sphinx.ext.linkcode',
+			  #'sphinx.ext.linkcode',
               'sphinx_gallery.gen_gallery']
 
 
