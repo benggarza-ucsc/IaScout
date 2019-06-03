@@ -557,6 +557,7 @@ files corresponding to each SN filter (In <filtpath>/<survey>.	If not provided, 
 			fout = open(self.options.smoothfluxfile,'w')
 			print('# filtfile zpt phase flux fluxerr', file=fout)
 			for flt in sn.FILTERS:
+				print(self.options.filterfiles[1], self.options.filterfiles[0], flt)
 				if 'PEAKMJD' in sn.__dict__:
 					tobs,flux,err = sn.MJD[(sn.FLT == flt[0])]-sn.PEAKMJD,\
 						sn.FLUXCAL[(sn.FLT == flt[0])],sn.FLUXCALERR[(sn.FLT == flt[0])]
@@ -929,7 +930,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 
 	#model = smoothfunc_modelout(md.x,t=tsmooth,flt=tflt)
 
-	plt.gca().set_color_cycle(None)
+	plt.gca().set_prop_cycle(None)
 	for flt,i in zip(sn.FILTERS,list(range(len(sn.FILTERS)))):
 		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
 						(sn.tobs/(1+sn.z) <= tobsrange[1]+1) &
@@ -937,7 +938,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 		tcol = np.where(tflt == flt)
 		if mkplot:
 			plt.plot(tsmooth[tcol],model[tcol])
-	plt.gca().set_color_cycle(None)
+	plt.gca().set_prop_cycle(None)
 	for flt,i in zip(sn.FILTERS,list(range(len(sn.FILTERS)))):
 		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
 						(sn.tobs/(1+sn.z) <= tobsrange[1]+1) &
@@ -947,6 +948,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 			plt.errorbar(sn.tobs[icol],sn.FLUXCAL[icol],
 						 yerr=sn.FLUXCALERR[icol],fmt='o',label=flt)
 
+    # youngsn xlim is off
 	if mkplot:
 		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
 						(sn.tobs/(1+sn.z) <= tobsrange[1]+1))
@@ -960,8 +962,8 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 		plt.savefig('%s/%s.lcsmooth.png'%(workdir,sn.SNID))
 
 		ycol = np.where((sn.tobs/(1+sn.z) > tobsrange[0]) &
-						(sn.tobs/(1+sn.z) < tobsrange[0]+15))
-		plt.xlim([min(sn.tobs[ycol])-5,max(sn.tobs[ycol])+15])
+						(sn.tobs/(1+sn.z) < tobsrange[0]+20))
+		plt.xlim([min(sn.tobs[ycol])-5,max(sn.tobs[ycol])+20])
 		plt.ylim([0,max(sn.FLUXCAL[ycol])*4/3.])
 		plt.savefig('%s/%s.lcsmooth.youngsn.png'%(workdir,sn.SNID))
 		
@@ -1728,12 +1730,12 @@ def getfmod(nowp, nowfilt, nowlam,
 	for i in range(len(nfu)):
 
 		if 'Bessell' in nfu[i]:
-			standard = '$SNDATA_ROOT/standards/vegased_2004_stis.txt'
+			standard =  '/home/ben/git/SN-Classifier/SNe_Early_Time_Classifier/templates/flatnu.dat' # '$SNDATA_ROOT/standards/vegased_2004_stis.txt'
 		else:
-			standard = '$SNDATA_ROOT/standards/flatnu.dat'
+			standard = '/home/ben/git/SN-Classifier/SNe_Early_Time_Classifier/templates/flatnu.dat' #'$SNDATA_ROOT/standards/flatnu.dat'
 		if ab:
 			print('HAAAAAACK AB MAGS FOR 2012fr!!!')
-			standard = '$SNDATA_ROOT/standards/flatnu.dat'
+			standard = '/home/ben/git/SN-Classifier/SNe_Early_Time_Classifier/templates/flatnu.dat' # '$SNDATA_ROOT/standards/flatnu.dat'
 			
 		fnu1,fnu2 = np.loadtxt(os.path.expandvars(standard),unpack=True)
 		filt1,filt2 = np.loadtxt(nfu[i],unpack=True)
