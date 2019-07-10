@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+import sys
+sys.path.append('/home/ben/git/SN-Classifier')
+
 import json
 import numpy as np
 from SNe_Early_Time_Classifier.util import snana
@@ -7,7 +10,7 @@ from SNe_Early_Time_Classifier.mangle.LightCurves.filters import filtbase
 import os
 
 peakmjddict = {'SN1993J':49095}
-filtdict = {}#'SN2005hk':'ugriz'}
+filtdict = {'SN2018gv':'GC'}#'SN2005hk':'ugriz'}
 
 class convJSON:
 	def __init__(self):
@@ -54,6 +57,8 @@ def mkSpec(fname='TDe/ASASSN-14ae.json',
 	sn = snana.SuperNova(lcfile)
 	normfiltfile = os.path.join(filtbase,normfilter)
 	
+	print("init MJD:",sn.MJD,"\ninit mag:",sn.MAG)
+	
 	with open(fname) as data_file:
 		data = json.load(data_file)
 
@@ -62,7 +67,8 @@ def mkSpec(fname='TDe/ASASSN-14ae.json',
 	for i,j in zip(data[fname.split('.')[0].split('/')[-1]]['spectra'],
 				   range(len(data[fname.split('.')[0].split('/')[-1]]['spectra']))):
 		w,f = np.array(i['data']).transpose().astype(float)[0:2,:]
-		if w[0] > minlamrange[0] or w[-1] < minlamrange[1]: continue 
+		print("minlamrange:",minlamrange)
+		if w[0] > minlamrange[0] or w[-1] < minlamrange[1]: continue
 		time += [float(i['time'])]
 
 	time = np.array(time)
@@ -88,11 +94,13 @@ def mkSpec(fname='TDe/ASASSN-14ae.json',
 		peaktime = peakmjddict[snid]
 
 	sn.tobs = sn.MJD - peaktime
+	print("MJD:", sn.MJD,"\npeaktime:",peaktime)
 		
 	for i,j in zip(data[fname.split('.')[0].split('/')[-1]]['spectra'],
 				   range(len(data[fname.split('.')[0].split('/')[-1]]['spectra']))):
 		if j == 0: mintime = float(i['time'])
 		w,f = np.array(i['data']).transpose().astype(float)[0:2,:]
+		print("mintime:", mintime,"\ntobs:",sn.tobs,"\nmag:",sn.MAG)
 		magtspec = np.interp(mintime,sn.tobs,sn.MAG)
 		mag = synphot(w,f,filtfile=normfiltfile,magtype=magtype)
 		f *= 10**(-0.4*(magtspec-mag))
@@ -117,6 +125,7 @@ def mkSpec(fname='TDe/ASASSN-14ae.json',
 		if np.sum(f[(w > 4500) & (w < 6500)]) > peakflux and float(i['time'])-tstart < 100 and snid not in peakmjddict.keys():
 			peakflux = np.sum(f[(w > 4500) & (w < 6500)])
 			peaktime = float(i['time'])
+			print("Final peaktime:",peaktime)
 			
 		jcount += 1
 		
@@ -128,6 +137,9 @@ def mkSpec(fname='TDe/ASASSN-14ae.json',
 									 outspec[h,:])
 		outspect[h,0] = 0
 		outspect[h,-1] = 0
+		
+	print("Interpolated time points:",interp_time)
+	print("timearray:",timearray)
 	timearray = np.concatenate((np.array([np.min(timearray)-interp_time]),
 								timearray,np.array([np.max(timearray)+interp_time]),))
 		
@@ -145,112 +157,6 @@ def mkSpec(fname='TDe/ASASSN-14ae.json',
 
 	return()
 
-def mkPhotFile(fname='SLSN/SN2015bh.json',outfile='SLSN/SN2015bh.snana.dat',
-			   surveyname='NULL',pkmjd=None,filtlist=None):
-
-	with open(fname) as data_file:
-		data = json.load(data_file)
-
-	snid = fname.split('.')[0].split('/')[-1]
-	nobs = len(data[snid]['photometry'])
-	z = float(data[snid]['redshift'][0]['value'])
-	peakdate = data[snid]['maxdate'][0]['value']
-
-	if not pkmjd:
-		from astropy.time import Time
-		times = ['%sT00:00:00'%peakdate.replace('/','-')]
-		t = Time(times,format='isot',scale='utc')
-		pkmjd = t.mjd[0]
-
-	if not filtlist and snid not in filtdict.keys():
-		filters = ''
-		for phot in data[snid]['photometry']:
-			if 'band' in phot.keys():
-				if phot['band'] not in filters and phot['band'].replace("'","") not in filters and \
-				   phot['band'].replace("'","") in ['U','B','V','R','I','u','g','r','i','z']:
-					filters += phot['band'].replace("'","")
-	elif snid in filtdict.keys():
-		filters = filtdict[snid]
-	else:
-		filters = filtlist
-		
-	snanahdr = """SNID: %s
-SURVEY: %s
-FILTERS: %s
-REDSHIFT_FINAL: %.4f +- 0.0010
-PEAKMJD: %s
-	
-NOBS: %i
-NVAR: 7
-VARLIST:  MJD  FLT FIELD   FLUXCAL	 FLUXCALERR	   MAG	   MAGERR
-"""%(snid,surveyname,filters,z,pkmjd,nobs)
-
-	fout = open(outfile,'w')
-	print(snanahdr,file=fout)
-
-	for phot in data[snid]['photometry']:
-		linefmt = 'OBS: %.1f  %s  NULL	%.3f  %.3f	%.3f  %.3f'
-		if 'band' in phot.keys() and 'time' in phot.keys() and phot['band'].replace("'","") in filters:
-			if 'system' in phot.keys() and phot['band'] == phot['band'].upper() and len(phot['band']) == 1 and phot['system'] == 'AB':
-				print('AHHHHH AB MAG FOR FILTER %s'%phot['band'])
-			print(linefmt%(float(phot['time']),phot['band'].replace("'",""),10**(-0.4*(float(phot['magnitude'])-27.5)),
-						   0.0,float(phot['magnitude']),0.0),file=fout)
-	print('END: ',file=fout)
-	fout.close()
-
-def mkPhotFile(fname='SLSN/SN2015bn.json',outfile='SLSN/SN2015bn.snana.dat',
-			   surveyname='NULL',pkmjd=None,filtlist=None):
-
-	with open(fname) as data_file:
-		data = json.load(data_file)
-
-	snid = fname.split('.')[0].split('/')[-1]
-	nobs = len(data[snid]['photometry'])
-	z = float(data[snid]['redshift'][0]['value'])
-	peakdate = data[snid]['maxdate'][0]['value']
-
-	if not pkmjd:
-		from astropy.time import Time
-		times = ['%sT00:00:00'%peakdate.replace('/','-')]
-		t = Time(times,format='isot',scale='utc')
-		pkmjd = t.mjd[0]
-
-	if not filtlist and snid not in filtdict.keys():
-		filters = ''
-		for phot in data[snid]['photometry']:
-			if 'band' in phot.keys():
-				if phot['band'] not in filters and phot['band'].replace("'","") not in filters and \
-				   phot['band'].replace("'","") in ['U','B','V','R','I','u','g','r','i','z']:
-					filters += phot['band'].replace("'","")
-	elif snid in filtdict.keys():
-		filters = filtdict[snid]
-	else:
-		filters = filtlist
-		
-	snanahdr = """SNID: %s
-SURVEY: %s
-FILTERS: %s
-REDSHIFT_FINAL: %.4f +- 0.0010
-PEAKMJD: %s
-	
-NOBS: %i
-NVAR: 7
-VARLIST:  MJD  FLT FIELD   FLUXCAL	 FLUXCALERR	   MAG	   MAGERR
-"""%(snid,surveyname,filters,z,pkmjd,nobs)
-
-	fout = open(outfile,'w')
-	print(snanahdr,file=fout)
-
-	for phot in data[snid]['photometry']:
-		linefmt = 'OBS: %.1f  %s  NULL	%.3f  %.3f	%.3f  %.3f'
-		if 'band' in phot.keys() and 'time' in phot.keys() and phot['band'].replace("'","") in filters:
-			if 'system' in phot.keys() and phot['band'] == phot['band'].upper() and len(phot['band']) == 1 and phot['system'] == 'AB':
-				print('AHHHHH AB MAG FOR FILTER %s'%phot['band'])
-			print(linefmt%(float(phot['time']),phot['band'].replace("'",""),10**(-0.4*(float(phot['magnitude'])-27.5)),
-						   0.0,float(phot['magnitude']),0.0),file=fout)
-	print('END: ',file=fout)
-	fout.close()
-	
 def mkPhotFile_Err(fname='Ia/SN1572A.json',outfile='/Users/David/Dropbox/research/Tycho/SN1572A.snana.dat',
 				   surveyname='NULL',pkmjd=None,filtlist=None):
 
@@ -259,31 +165,43 @@ def mkPhotFile_Err(fname='Ia/SN1572A.json',outfile='/Users/David/Dropbox/researc
 
 	snid = fname.split('.')[0].split('/')[-1]
 	nobs = len(data[snid]['photometry'])
+	
 	try:
 		z = float(data[snid]['redshift'][0]['value'])
 	except:
 		z = 0
 		print('warning : no redshift')
-	peakdate = data[snid]['maxdate'][0]['value']
 
+	peakdate = data[snid]['maxdate'][0]['value']
+	
+    # if no peak date is given
 	if not pkmjd:
 		from astropy.time import Time
 		times = ['%sT00:00:00'%peakdate.replace('/','-')]
 		t = Time(times,format='isot',scale='utc')
 		pkmjd = t.mjd[0]
 
+    # if no filter list is given and not in filtdict (line 13) then use 
 	if not filtlist and snid not in filtdict.keys():
 		filters = ''
 		for phot in data[snid]['photometry']:
 			if 'band' in phot.keys():
+                
+                # Populate filter list with any of bands uBVRIgriz found in photometry entries
 				if phot['band'] not in filters and phot['band'].replace("'","") not in filters and \
-				   phot['band'].replace("'","") in ['U','B','V','R','I','u','g','r','i','z']:
+				   phot['band'].replace("'","") in ['B','V','R','I','u','g','r','i','z']:
 					filters += phot['band'].replace("'","")
+					
 	elif snid in filtdict.keys():
 		filters = filtdict[snid]
+		
+    # Defer to filtlist, might be None if 'band' is not in the json photometry key list
 	else:
 		filters = filtlist
 		
+    # Writing photometry to snana file
+    fout = open(outfile,'w')
+    
 	snanahdr = """SNID: %s
 SURVEY: %s
 FILTERS: %s
@@ -295,17 +213,20 @@ NVAR: 7
 VARLIST:  MJD  MJDERR  FLT FIELD   FLUXCAL	 FLUXCALERR	   MAG	   MAGERR
 """%(snid,surveyname,filters,z,pkmjd,nobs)
 
-	fout = open(outfile,'w')
 	print(snanahdr,file=fout)
 
 	for phot in data[snid]['photometry']:
 		linefmt = 'OBS: %.1f  %.1f  %s  NULL	%.3f  %.3f	%.3f  %.3f'
+		
 		if 'band' in phot.keys() and 'time' in phot.keys() and phot['band'].replace("'","") in filters:
+            
 			if 'system' in phot.keys() and phot['band'] == phot['band'].upper() and len(phot['band']) == 1 and phot['system'] == 'AB':
 				print('AHHHHH AB MAG FOR FILTER %s'%phot['band'])
+				
 			if 'e_time' in phot.keys() and 'e_magnitude' in phot.keys():
 				print(linefmt%(float(phot['time']),float(phot['e_time']),phot['band'].replace("'",""),10**(-0.4*(float(phot['magnitude'])-27.5)),
 							   np.abs(float(phot['e_magnitude'])*0.4*np.log(10)*10**(-0.4*(float(phot['magnitude'])-27.5))),float(phot['magnitude']),float(phot['e_magnitude'])),file=fout)
+                
 			elif 'e_magnitude' in phot.keys():
 				print(linefmt%(float(phot['time']),0.0,phot['band'].replace("'",""),10**(-0.4*(float(phot['magnitude'])-27.5)),
 							   np.abs(float(phot['e_magnitude'])*0.4*np.log(10)*10**(-0.4*(float(phot['magnitude'])-27.5))),
@@ -316,7 +237,6 @@ VARLIST:  MJD  MJDERR  FLT FIELD   FLUXCAL	 FLUXCALERR	   MAG	   MAGERR
 							   np.abs(float(phot['e_lower_magnitude'])*0.4*np.log(10)*10**(-0.4*(float(phot['magnitude'])-27.5))),
 							   float(phot['magnitude']),float(phot['e_lower_magnitude'])),file=fout)
 
-				
 			elif 'upperlimit' in phot.keys() and phot['upperlimit'] == True:
 				flux_upperlim = 10**(-0.4*(float(phot['magnitude'])-27.5))
 				fluxerr = flux_upperlim/3.
@@ -324,14 +244,17 @@ VARLIST:  MJD  MJDERR  FLT FIELD   FLUXCAL	 FLUXCALERR	   MAG	   MAGERR
 				
 				print(linefmt%(float(phot['time']),0.0,phot['band'].replace("'",""),flux,fluxerr,
 										float(phot['magnitude']),0),file=fout)
+                
 			else:
+                print("Error keys not found")
+				print(phot.keys())
 				import pdb; pdb.set_trace()
-				
 
 	print('END: ',file=fout)
 	fout.close()
 	
-		
+
+
 if __name__ == "__main__":
 
 	import os
