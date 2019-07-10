@@ -692,9 +692,9 @@ class lightcurve_fit_mcmc:
 		
 		#errfunc = lambda params: 
 		def errfunc(params):
-			chi2 = -np.sum(abs(flux - self.bazin(scaled_time, *params))/fluxerr)
-			print(chi2)
-			return chi2/2
+			chi = -np.sum(abs(flux - self.bazin(scaled_time, *params))/fluxerr)
+			#print(chi)
+			return chi/2
 			
 		loglikes = [errfunc(guess)]
 		Xlast = guess[:]
@@ -721,7 +721,7 @@ class lightcurve_fit_mcmc:
 			else:
 				for j in range(self.npar):
 					outpars[j] += [Xlast[j]]
-		
+    
 		print('acceptance = %.3f'%(accept/float(nstep)))
 		outpars = self.getParsMCMC(np.array(outpars),nburn=nburn)
 		#import pdb; pdb.set_trace()
@@ -880,6 +880,11 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 	tsmoothout = np.array([])
 	tsmooth = np.arange(tobsrange[0],tobsrange[1],0.25)
 	model = np.array([])
+	
+	# For sigma clipping #
+	expectedvalues = []
+	FLUXCALERRNEW = np.sqrt(sn.FLUXCALERR**2. + (0.02 * sn.FLUXCAL)**2.)
+
 
 	for flt in sn.FILTERS:
 		print(flt)
@@ -889,9 +894,33 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 						(sn.tobs/(1+sn.z) <= tobsrange[1]+1) &
 						(sn.FLT == flt))
 
+		# Also does sigma clipping #
 		if smoothfunc == 'mcmc':
-			lcfit = lightcurve_fit_mcmc()
-			fit_params = lcfit.fit(sn.tobs[icol],sn.FLUXCAL[icol]/np.max(sn.FLUXCAL[icol]),sn.FLUXCALERR[icol])
+			i_outlier = np.array([])
+			fltexpectedvalues = np.array([])
+			maxiter = 5
+			it = 0
+
+			while it < maxiter:
+				it += 1
+				
+				
+				# Do fit with data points within 3*sigma #
+				iclipped  = np.setdiff1d(icol, i_outlier)
+				
+				lcfit = lightcurve_fit_mcmc()
+				fit_params = lcfit.fit(sn.tobs[iclipped],sn.FLUXCAL[iclipped]/np.max(sn.FLUXCAL[iclipped]),sn.FLUXCALERR[iclipped])
+					
+				# Determine data points outside of 3*sigma #
+				fltexpectedvalues = lcfunc(sn.tobs[icol]-np.min(sn.tobs[iclipped]),*fit_params)*np.max(sn.FLUXCAL[iclipped])
+				
+				sigma = np.sqrt(np.sum((sn.FLUXCAL[icol] - fltexpectedvalues)**2.)/len(sn.FLUXCAL[icol]))
+				
+				i_outlier = np.fromiter((icol[0][i] for i in range(len(icol[0])) if sn.FLUXCAL[icol[0][i]] - FLUXCALERRNEW[icol[0][i]] > fltexpectedvalues[i] + 3*sigma or sn.FLUXCAL[icol[0][i]] + FLUXCALERRNEW[icol[0][i]] < fltexpectedvalues[i] - 3*sigma), int)
+				
+			expectedvalues.append(fltexpectedvalues)
+                
+                
 		else:
 			fit_params = fitfunc(sn.tobs[icol],
 								 sn.FLUXCAL[icol]/np.max(sn.FLUXCAL[icol]),sn.FLUXCALERR[icol])
@@ -929,25 +958,46 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 	tsmooth = tsmoothout[:]
 
 	#model = smoothfunc_modelout(md.x,t=tsmooth,flt=tflt)
-
-	plt.gca().set_prop_cycle(None)
+	if mkplot:
+		cwheel = ['m','b','c', 'g','r','k']
+		plt.gca().set_prop_cycle(None)
+	
 	for flt,i in zip(sn.FILTERS,list(range(len(sn.FILTERS)))):
 		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
 						(sn.tobs/(1+sn.z) <= tobsrange[1]+1) &
 						(sn.FLT == flt))
 		tcol = np.where(tflt == flt)
 		if mkplot:
-			plt.plot(tsmooth[tcol],model[tcol])
-	plt.gca().set_prop_cycle(None)
-	for flt,i in zip(sn.FILTERS,list(range(len(sn.FILTERS)))):
-		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
-						(sn.tobs/(1+sn.z) <= tobsrange[1]+1) &
-						(sn.FLT == flt))
-		tcol = np.where(tflt == flt)
-		if mkplot:
-			plt.errorbar(sn.tobs[icol],sn.FLUXCAL[icol],
-						 yerr=sn.FLUXCALERR[icol],fmt='o',label=flt)
-
+			sigma = np.sqrt(np.sum((sn.FLUXCAL[icol] - expectedvalues[i])**2.)/len(sn.FLUXCAL[icol]))
+			
+			# Plot fitted lightcurve #
+			plt.plot(tsmooth[tcol],model[tcol],color=cwheel[i])
+			
+			# Add shaded area within 1*sigma of model #
+			# plt.fill_between(tsmooth[tcol], model[tcol] - sigma, model[tcol] + sigma,facecolor=cwheel[i],alpha=0.2)
+								
+            # Plot photometry #
+			i_outlier = np.fromiter((icol[0][j] for j in range(len(icol[0])) if sn.FLUXCAL[icol[0][j]] - FLUXCALERRNEW[icol[0][j]] > expectedvalues[i][j] + 3*sigma or sn.FLUXCAL[icol[0][j]] + FLUXCALERRNEW[icol[0][j]] < expectedvalues[i][j] - 3*sigma), int)
+		
+			iclipped = np.setdiff1d(icol, i_outlier)
+						
+			plt.errorbar(sn.tobs[iclipped],sn.FLUXCAL[iclipped],
+						 yerr=sn.FLUXCALERR[iclipped],fmt='o',color=cwheel[i],label=flt)
+			
+			# Data points removed from fitting via 3*sigma clipping #
+			plt.errorbar(sn.tobs[i_outlier],sn.FLUXCAL[i_outlier],
+						 yerr=sn.FLUXCALERR[i_outlier],fmt='x',color=cwheel[i])
+		
+			
+			# To look at plots of individual filters #
+			#icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) & (sn.tobs/(1+sn.z) <= tobsrange[1]+1))
+			#plt.xlim([min(sn.tobs[icol])-5,max(sn.tobs[icol])+5])
+			#plt.ylim([0,max(sn.FLUXCAL[icol])*4/3.])
+			#plt.legend(numpoints=1)
+			#plt.xlabel('Phase')
+			#plt.ylabel('Flux')
+			#plt.show()
+			
     # youngsn xlim is off
 	if mkplot:
 		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
@@ -957,14 +1007,15 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 		plt.legend(numpoints=1)
 		plt.xlabel('Phase')
 		plt.ylabel('Flux')
-		plt.title(sn.SNID,fontsize=15)
+		plt.title("%s" % sn.SNID,fontsize=15)
 		#plt.xlim([-3,3])
 		plt.savefig('%s/%s.lcsmooth.png'%(workdir,sn.SNID))
 
 		ycol = np.where((sn.tobs/(1+sn.z) > tobsrange[0]) &
 						(sn.tobs/(1+sn.z) < tobsrange[0]+20))
-		plt.xlim([min(sn.tobs[ycol])-5,max(sn.tobs[ycol])+20])
+		plt.xlim([min(sn.tobs[ycol])-5, max(sn.tobs[ycol]) - 2])
 		plt.ylim([0,max(sn.FLUXCAL[ycol])*4/3.])
+		#plt.show()
 		plt.savefig('%s/%s.lcsmooth.youngsn.png'%(workdir,sn.SNID))
 		
 	if debug: import pdb; pdb.set_trace()
