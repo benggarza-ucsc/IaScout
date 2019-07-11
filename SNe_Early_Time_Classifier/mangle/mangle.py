@@ -929,7 +929,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 
 	#model = smoothfunc_modelout(md.x,t=tsmooth,flt=tflt)
 
-	plt.gca().set_color_cycle(None)
+	#plt.gca().set_color_cycle(None)
 	for flt,i in zip(sn.FILTERS,list(range(len(sn.FILTERS)))):
 		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
 						(sn.tobs/(1+sn.z) <= tobsrange[1]+1) &
@@ -937,7 +937,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 		tcol = np.where(tflt == flt)
 		if mkplot:
 			plt.plot(tsmooth[tcol],model[tcol])
-	plt.gca().set_color_cycle(None)
+	#plt.gca().set_color_cycle(None)
 	for flt,i in zip(sn.FILTERS,list(range(len(sn.FILTERS)))):
 		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
 						(sn.tobs/(1+sn.z) <= tobsrange[1]+1) &
@@ -1280,7 +1280,7 @@ def doMangle(snid,z,niter=9,sntemp=None,
 			pdf_pages.savefig(fig)
 			fig = plt.figure()
 
-
+		import pdb; pdb.set_trace()
 		if csm < fadjm*1.1: snt.flux = nowflux[:]
 		sedfn = '%s/%s.sed.iter%02i.txt'%(workdir,snid,i+1)
 
@@ -1878,9 +1878,13 @@ def modelfunc(x, fmod, px, lx, filt, ufilt, nufilt, ndegr,random):
 	nmod = fmod-fmod
 	for i in range(nufilt):
 		qq = np.where(filt == ufilt[i])
-		f = interpolate.InterpolatedUnivariateSpline(
-			poly(px[qq],pwarp),fmod[qq],
-			k=1)
+		try:
+			f = interpolate.InterpolatedUnivariateSpline(
+				poly(px[qq],pwarp),fmod[qq],
+				k=1)
+		except:
+			print('DID YOU SMOOTH THE LIGHT CURVE?')
+			import pdb; pdb.set_trace()
 		nmod[qq] = f(px[qq])
 		#nmod[qq] = np.interp(px[qq],poly(px[qq],pwarp),fmod[qq])
 		# IS THIS RIGHT????
@@ -1905,7 +1909,7 @@ def modelfunc(x, fmod, px, lx, filt, ufilt, nufilt, ndegr,random):
 	maxcol = np.where(mult > 5)[0]
 	if len(mincol): mult[mincol] = 0.2
 	if len(maxcol): mult[maxcol] = 5.
-
+	import pdb; pdb.set_trace()
 	mvar = nmod * mult / norm
 	col = np.where(mvar < 0)[0]
 	if len(col): mvar[col] = 0
