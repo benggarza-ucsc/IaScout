@@ -464,8 +464,8 @@ class mangle:
 						  help='minimization tolerance.	 This needs to be high or it takes forever!')
 		parser.add_option('--smoothlc',action='store_true',default=False,
 						  help='if set, smooth the light curve before mangling')
-		parser.add_option('--smoothfunc',default='mcmc',type='string',
-						  help='function for smoothing (mcmc, bazin, george, or georgebazin)')
+		parser.add_option('--smoothfunc',default='george',type='string',
+						  help='function for smoothing (bazin, george, or georgebazin)')
 		parser.add_option('--interplc',action='store_true',default=False,
 						  help='if set, interpolate the light curve before mangling')
 		parser.add_option('--ab',action='store_true',default=False,
@@ -649,21 +649,49 @@ files corresponding to each SN filter (In <filtpath>/<survey>.	If not provided, 
 		fout.close()
 
 class lightcurve_fit_mcmc:
-	def __init__(self):
-		self.parlist = ['A','t0','tfall','trise']
-
-		self.npar = 4
-		self.stepsize_t = 0.2
+	def __init__(self,fitfunc):
+		if fitfunc == 'bazin':
+			self.parlist = ['A','t0','tfall','trise']
+			self.npar = 4
+			self.guess = [1, 0, 40, -5]
+			self.fitfunc = self.bazin
+		elif fitfunc == 'george':
+			self.parlist = ['A','tmax','beta','c','tfall','trise']
+			self.npar = 6
+			self.guess = [1, 0, 1, 0, 40, 5]
+			self.fitfunc = self.george
+		elif fitfunc == 'georgebazin':
+			self.parlist = ['A','tmax', 'beta', 'c', 'tfall', 'trise',
+							'bazinA', 'bazinB', 'bazint0', 'bazintfall', 'bazintrise']
+			self.npar = 11
+			#self.guess = [1, 0, 1, 0, 40, 5]
+			self.guess = [0, 0, 0, 0, 40, -5, 0, 0, 20, 40, -5]
+			self.fitfunc = self.georgebazin
+		else: raise RuntimeError('error : fitting function not defined!')
+			
+		self.stepsize_t0 = 0.2
 		self.stepsize_A = 0.03
+		self.stepsize_bazinA = 0.03
+		self.stepsize_bazinB = 0.03
+		self.stepsize_bazint0 = 0.2
+		self.stepsize_bazintfall = 0.1
+		self.stepsize_bazintrise = 0.1
 		#self.stepsize_B = 0.02
+
+		self.stepsize_beta = 0.03
+		self.stepsize_c = 0.03
+		self.stepsize_tmax = 0.2
+		self.stepsize_tfall = 0.1
+		self.stepsize_trise = 0.1
 		
 	def adjust_model(self,X):
 		
 		X2 = np.zeros(self.npar)
 		for i,par in zip(range(self.npar),self.parlist):
-			if par == 'A': X2[i] = X[i]*10**(0.4*np.random.normal(scale=self.stepsize_A))#*stepfactor))
-			elif par.startswith('t'):
-				X2[i] = X[i] + np.random.normal(scale=self.stepsize_t)
+			if par == 'A' or par == 'beta' or par == 'bazinA' or par == 'bazinB':
+				X2[i] = X[i]*10**(0.4*np.random.normal(scale=self.stepsize_A))#*stepfactor))
+			elif par.startswith('t') or par == 'c' or par == 'bazint0' or par == 'bazintrise' or par == 'bazintfall':
+				X2[i] = X[i] + np.random.normal(scale=self.__dict__['stepsize_%s'%par])
 			else: raise RuntimeError('parameter %s not found'%par)
 		return X2
 
@@ -682,22 +710,53 @@ class lightcurve_fit_mcmc:
 		bazinfunc = A * X
 		bazinfunc -= bazinfunc[time == np.min(time)][0]
 		
-		return bazinfunc
+		return bazinfunc	
+
+	def george(self, time, A, tmax, beta, c, tfall, trise):
+
+		model = np.zeros(len(time))
+
+		trise,tfall = np.abs(trise),np.abs(tfall)
+		model[time < tmax] = 1
+		model[time >= tmax] = np.exp(-(time[time >= tmax]-tmax)/tfall)
+		model *= (A + beta*(time-tmax))
+		model *= 1/(1 + np.exp(-(time-tmax)/trise))
+		model += c
+
+		return model
+
+	def georgebazin(self, time, A, tmax, beta, c, tfall, trise,
+					bazinA, bazinB, bazint0, bazintfall, bazintrise):
+		
+		model = np.zeros(len(time))
+		
+		trise,tfall = np.abs(trise),np.abs(tfall)
+		model[time < tmax] = 1
+		model[time >= tmax] = np.exp(-(time[time >= tmax]-tmax)/tfall)
+		model *= (A + beta*(time-tmax))
+		model *= 1/(1 + np.exp(-(time-tmax)/trise))
+		model += c
+	
+		bazinX = np.exp(-(time - bazint0) / bazintfall) / (1 + np.exp((time - bazint0) / bazintrise))
+		bazinmodel = bazinA * bazinX + bazinB
+
+		return model + bazinmodel
 
 	
 	def fit(self, time, flux, fluxerr, nsteps=10000, nburn=9000):
 		scaled_time = time - time.min()
 		t0 = scaled_time[flux.argmax()]
-		guess = (1, t0, 40, -5)
+		self.guess[1] = t0
 		
 		#errfunc = lambda params: 
 		def errfunc(params):
-			chi = -np.sum(abs(flux - self.bazin(scaled_time, *params))/fluxerr)
+			chi = -np.sum((flux - self.fitfunc(scaled_time, *params))**2./fluxerr**2.)
 			#print(chi)
 			return chi/2
 			
-		loglikes = [errfunc(guess)]
-		Xlast = guess[:]
+		loglikes = [errfunc(self.guess)]
+		#import pdb; pdb.set_trace()
+		Xlast = self.guess[:]
 		accept = 0
 		nstep = 0
 		outpars = [[] for i in range(self.npar)]
@@ -712,6 +771,7 @@ class lightcurve_fit_mcmc:
 			# accepted?
 			accept_bool = self.accept(loglikes[-1],this_loglike)
 			if accept_bool:
+				#print('accepted!')
 				for j in range(self.npar):
 					outpars[j] += [X[j]]
 				loglikes+=[this_loglike]
@@ -782,7 +842,7 @@ def bazin_noB(time, A, t0, tfall, trise):
 	return bazinfunc
 
 
-def george(time, A, beta, c, tmax, tfall, trise):
+def george(time, A, tmax, beta, c, tfall, trise):
 
 	model = np.zeros(len(time))
 
@@ -795,7 +855,7 @@ def george(time, A, beta, c, tmax, tfall, trise):
 
 	return model
 
-def georgebazin(time, A, beta, c, tmax, tfall, trise,
+def georgebazin(time, A, tmax, beta, c, tfall, trise,
 		   bazinA, bazinB, bazint0, bazintfall, bazintrise):
 
 	model = np.zeros(len(time))
@@ -862,12 +922,12 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 	#if md.message != 'Optimization terminated successfully.':
 	#	print('Warning!! : %s'%md.message)
 
-	if smoothfunc == 'mcmc':
-		fitfunc = lightcurve_fit_mcmc
-		lcfunc = bazin_noB
+	#if smoothfunc == 'mcmc':
+	#	fitfunc = lightcurve_fit_mcmc
+	#	lcfunc = bazin_noB
 	if smoothfunc == 'bazin':
 		fitfunc = lightcurve_fit
-		lcfunc = bazin
+		lcfunc = bazin_noB
 	elif smoothfunc == 'george':
 		fitfunc = lightcurve_fit_george
 		lcfunc = george
@@ -895,7 +955,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 						(sn.FLT == flt))
 
 		# Also does sigma clipping #
-		if smoothfunc == 'mcmc':
+		if 'hi': #smoothfunc == 'mcmc':
 			i_outlier = np.array([])
 			fltexpectedvalues = np.array([])
 			maxiter = 5
@@ -908,7 +968,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 				# Do fit with data points within 3*sigma #
 				iclipped  = np.setdiff1d(icol, i_outlier)
 				
-				lcfit = lightcurve_fit_mcmc()
+				lcfit = lightcurve_fit_mcmc(smoothfunc)
 				fit_params = lcfit.fit(sn.tobs[iclipped],sn.FLUXCAL[iclipped]/np.max(sn.FLUXCAL[iclipped]),sn.FLUXCALERR[iclipped])
 					
 				# Determine data points outside of 3*sigma #
@@ -916,7 +976,9 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 				
 				sigma = np.sqrt(np.sum((sn.FLUXCAL[icol] - fltexpectedvalues)**2.)/len(sn.FLUXCAL[icol]))
 				
-				i_outlier = np.fromiter((icol[0][i] for i in range(len(icol[0])) if sn.FLUXCAL[icol[0][i]] - FLUXCALERRNEW[icol[0][i]] > fltexpectedvalues[i] + 3*sigma or sn.FLUXCAL[icol[0][i]] + FLUXCALERRNEW[icol[0][i]] < fltexpectedvalues[i] - 3*sigma), int)
+				i_outlier = np.fromiter((icol[0][i] for i in range(len(icol[0])) if \
+										 sn.FLUXCAL[icol[0][i]] - FLUXCALERRNEW[icol[0][i]] > fltexpectedvalues[i] + 3*sigma or \
+										 sn.FLUXCAL[icol[0][i]] + FLUXCALERRNEW[icol[0][i]] < fltexpectedvalues[i] - 3*sigma), int)
 				
 			expectedvalues.append(fltexpectedvalues)
                 
@@ -959,7 +1021,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 
 	#model = smoothfunc_modelout(md.x,t=tsmooth,flt=tflt)
 	if mkplot:
-		cwheel = ['m','b','c', 'g','r','k']
+		cwheel = ['m','b','c', 'g','r','k','m','b','c', 'g','r','k']
 		plt.gca().set_prop_cycle(None)
 	
 	for flt,i in zip(sn.FILTERS,list(range(len(sn.FILTERS)))):
@@ -969,7 +1031,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 		tcol = np.where(tflt == flt)
 		if mkplot:
 			sigma = np.sqrt(np.sum((sn.FLUXCAL[icol] - expectedvalues[i])**2.)/len(sn.FLUXCAL[icol]))
-			
+			#import pdb; pdb.set_trace()
 			# Plot fitted lightcurve #
 			plt.plot(tsmooth[tcol],model[tcol],color=cwheel[i])
 			
