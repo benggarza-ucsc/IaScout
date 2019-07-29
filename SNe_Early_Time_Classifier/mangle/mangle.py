@@ -54,6 +54,9 @@ class SuperNova( object ) :
 		For observed or simulated SNe stored in ascii .dat files, user must provide
 		the full path to the datfile.
 		"""
+
+		print("Testing tabs in vim")
+
 		if not (datfile or (snid and simname)) :
 			if verbose:	 print("No datfile or simname provided. Returning an empty SuperNova object.")
 
