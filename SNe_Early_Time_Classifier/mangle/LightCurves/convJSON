@@ -1,0 +1,6 @@
+#!/bin/bash
+for f in Ia/Downloads/SN2018gv.json; do
+	echo "Converting $f"
+	python convJSON.py -v -j ${f%%.*}.json -o ${f%%.*}.sed -l ${f%%.*}.snana.dat
+done
+
