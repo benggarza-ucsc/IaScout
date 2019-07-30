@@ -3,6 +3,9 @@
 import os
 import numpy as np
 from scipy.optimize import least_squares
+import george
+from george import kernels
+from scipy.optimize import minimize
 
 class txtobj:
 	def __init__(self,filename):
@@ -533,7 +536,7 @@ files corresponding to each SN filter (In <filtpath>/<survey>.	If not provided, 
 			else: sn.MJD = sn.tobs + sn.SEARCH_PEAKMJD
 			sn.FLUXCALERR = np.zeros(len(sn.FLUXCAL))
 			if self.options.mkplot:
-				import pylab as plt
+				import matplotlib.pylab as plt
 				plt.clf()
 				for f in sn.FILTERS:
 					plt.plot(sn.tobs[sn.FLT == f],sn.FLUXCAL[sn.FLT == f],'o',label=f)
@@ -648,6 +651,7 @@ files corresponding to each SN filter (In <filtpath>/<survey>.	If not provided, 
 		print('END: ', file=fout)
 		fout.close()
 
+
 class lightcurve_fit_mcmc:
 	def __init__(self):
 		self.parlist = ['A','t0','tfall','trise']
@@ -721,7 +725,7 @@ class lightcurve_fit_mcmc:
 			else:
 				for j in range(self.npar):
 					outpars[j] += [Xlast[j]]
-    
+	
 		print('acceptance = %.3f'%(accept/float(nstep)))
 		outpars = self.getParsMCMC(np.array(outpars),nburn=nburn)
 		#import pdb; pdb.set_trace()
@@ -734,6 +738,57 @@ class lightcurve_fit_mcmc:
 			outpars = np.append(outpars,x[i][nburn:].mean())
 
 		return outpars
+
+
+class lightcurve_fit_george:
+	def __init__(self):
+		self.syserror = 0.02
+		self.gp = []
+
+	def fit(self, time, flux, fluxerr):
+		scaled_time = time - time.min()
+		t0 = scaled_time[flux.argmax()]
+		sys_fluxerr = self.syserror*flux
+		tot_fluxerr = np.sqrt(sys_fluxerr**2. + fluxerr**2.)
+
+		rise_time = scaled_time[:flux.argmax()+1]
+		fall_time = scaled_time[flux.argmax():]
+
+		rise_flux = flux[:flux.argmax()+1]
+		fall_flux = flux[flux.argmax():]
+
+		rise_fluxerr = tot_fluxerr[:flux.argmax()+1]
+		fall_fluxerr = tot_fluxerr[flux.argmax():]
+
+
+		### The coefficient of the kernel changes the fit immensly ###
+		rise_kernel = kernels.ExpKernel(5.0)
+		fall_kernel = kernels.Matern32Kernel(5.0)
+		kernel = rise_kernel + fall_kernel
+
+		
+		self.gp = george.GP(kernel, white_noise=np.log(0.001*np.max(flux)))
+		self.gp.compute(scaled_time, fluxerr)
+
+		def neg_ln_like(p):
+			self.gp.set_parameter_vector(p)
+			return -self.gp.log_likelihood(flux)
+
+		def grad_neg_ln_like(p):
+			self.gp.set_parameter_vector(p)
+			return -self.gp.grad_log_likelihood(flux)
+
+		result = minimize(neg_ln_like, self.gp.get_parameter_vector(), jac=grad_neg_ln_like)
+		self.gp.set_parameter_vector(result.x)
+		
+
+		#return self.gp
+		
+
+	def george(self, time, flux):
+		return self.gp.predict(flux,time,return_cov=False)
+
+
 		
 def lightcurve_fit(time, flux, fluxerr):
 	scaled_time = time - time.min()
@@ -746,16 +801,57 @@ def lightcurve_fit(time, flux, fluxerr):
 
 	return result.x
 
-def lightcurve_fit_george(time, flux, fluxerr):
+'''def lightcurve_fit_george(time, flux, fluxerr):
+	import george
+	from george import kernels
+	from scipy.optimize import minimize
 	scaled_time = time - time.min()
 	t0 = scaled_time[flux.argmax()]
 	guess = (0, 0, 0, t0, 40, -5)
+	yerr = flux*0.02
+		
+	kernel = np.var(flux) * kernels.Matern32Kernel(5.0) # What kernel to use?
+	gp = george.GP(kernel, white_noise=np.log(0.005*np.max(flux)))
+	gp.compute(scaled_time, yerr)
+	
+	trange = np.arange(-40, 100, 1)
+	pred, pred_var = gp.predict(flux, trange, return_var=True)
+	
+	plt.errorbar(scaled_time, flux, yerr=yerr, fmt='k.')
+	plt.plot(trange, pred, 'k')
+	plt.fill_between(trange, pred - np.sqrt(pred_var), pred + np.sqrt(pred_var), color='k', alpha = 0.3)
+	
+	plt.xlabel('Phase')
+	plt.ylabel('Flux')
+	plt.show()
+	
+	
+	def neg_ln_like(p):
+		gp.set_parameter_vector(p)
+		return -gp.log_likelihood(flux)
+	
+	def grad_neg_ln_like(p):
+		gp.set_parameter_vector(p)
+		return -gp.grad_log_likelihood(flux)
+	
+	
+	# errfunc = lambda params: abs(flux - george(scaled_time, *params))/fluxerr
 
-	errfunc = lambda params: abs(flux - george(scaled_time, *params))/fluxerr
+	result = minimize(neg_ln_like, gp.get_parameter_vector(), jac=grad_neg_ln_like)
+	gp.set_parameter_vector(result.x)
+	
+	pred, pred_var = gp.predict(flux, trange, return_var=True)
+	
+	plt.errorbar(scaled_time, flux, yerr=yerr, fmt='k.')
+	plt.plot(trange, pred, 'k')
+	plt.fill_between(trange, pred - np.sqrt(pred_var), pred + np.sqrt(pred_var), color='k', alpha = 0.3)
+	
+	plt.xlabel('Phase')
+	plt.ylabel('Flux')
+	plt.show()
+	kernel.get_parameter_vector()
 
-	result = least_squares(errfunc, guess, method='lm')
-
-	return result.x
+	return result.x'''
 
 def lightcurve_fit_georgepbazin(time, flux, fluxerr):
 	scaled_time = time - time.min()
@@ -782,7 +878,7 @@ def bazin_noB(time, A, t0, tfall, trise):
 	return bazinfunc
 
 
-def george(time, A, beta, c, tmax, tfall, trise):
+'''def george(time, A, beta, c, tmax, tfall, trise):
 
 	model = np.zeros(len(time))
 
@@ -793,7 +889,7 @@ def george(time, A, beta, c, tmax, tfall, trise):
 	model *= 1/(1 + np.exp(-(time-tmax)/trise))
 	model += c
 
-	return model
+	return model'''
 
 def georgebazin(time, A, beta, c, tmax, tfall, trise,
 		   bazinA, bazinB, bazint0, bazintfall, bazintrise):
@@ -848,7 +944,7 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 		
 #	 sn.FLUXCALERR[:] = 1e-2
 	if mkplot:
-		import pylab as plt
+		import matplotlib.pylab as plt
 		plt.clf()
 
 	icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
@@ -870,7 +966,6 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 		lcfunc = bazin
 	elif smoothfunc == 'george':
 		fitfunc = lightcurve_fit_george
-		lcfunc = george
 	elif smoothfunc == 'georgebazin':
 		fitfunc = lightcurve_fit_georgepbazin
 		lcfunc = georgebazin
@@ -919,11 +1014,16 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 				i_outlier = np.fromiter((icol[0][i] for i in range(len(icol[0])) if sn.FLUXCAL[icol[0][i]] - FLUXCALERRNEW[icol[0][i]] > fltexpectedvalues[i] + 3*sigma or sn.FLUXCAL[icol[0][i]] + FLUXCALERRNEW[icol[0][i]] < fltexpectedvalues[i] - 3*sigma), int)
 				
 			expectedvalues.append(fltexpectedvalues)
-                
-                
+			
+			 
+		elif smoothfunc == 'george':
+			lcfit = lightcurve_fit_george()
+			lcfunc = lcfit.george
+
+			lcfit.fit(sn.tobs[icol], sn.FLUXCAL[icol]/np.max(sn.FLUXCAL[icol]),sn.FLUXCALERR[icol])
+			fit_params = [sn.FLUXCAL[icol]/np.max(sn.FLUXCAL[icol])]
 		else:
-			fit_params = fitfunc(sn.tobs[icol],
-								 sn.FLUXCAL[icol]/np.max(sn.FLUXCAL[icol]),sn.FLUXCALERR[icol])
+			fit_params = fitfunc(sn.tobs[icol], sn.FLUXCAL[icol]/np.max(sn.FLUXCAL[icol]),sn.FLUXCALERR[icol])
 		filtmodel = lcfunc(tsmooth-sn.tobs[icol].min(),*fit_params)*np.max(sn.FLUXCAL[icol])
 		#filtmodel -= np.min(filtmodel)
 		#import pdb; pdb.set_trace()
@@ -950,16 +1050,16 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 						 (sn.FLT == flt))
 		iMinData = np.argsort(sn.tobs[icol2])[1]
 
-		print(('%s data at %i days: %.2f model: %.2f'%(
+		'''print(('%s data at %i days: %.2f model: %.2f'%(
 			flt,sn.tobs[icol2][iMinData],
 			-2.5*np.log10(sn.FLUXCAL[icol2][iMinData])+27.5,
-			-2.5*np.log10(lcfunc(np.array([sn.tobs[icol2][iMinData]-sn.tobs[icol2].min()]),*fit_params)*np.max(sn.FLUXCAL[icol]))+27.5)))
+			-2.5*np.log10(lcfunc(np.array([sn.tobs[icol2][iMinData]-sn.tobs[icol2].min()]),*fit_params)*np.max(sn.FLUXCAL[icol]))+27.5)))'''
 		#import pdb; pdb.set_trace()		
 	tsmooth = tsmoothout[:]
 
 	#model = smoothfunc_modelout(md.x,t=tsmooth,flt=tflt)
 	if mkplot:
-		cwheel = ['m','b','c', 'g','r','k']
+		cwheel = {'u':'m','b':'b','v':'c', 'g':'g','r':'r','i':'k'}
 		plt.gca().set_prop_cycle(None)
 	
 	for flt,i in zip(sn.FILTERS,list(range(len(sn.FILTERS)))):
@@ -968,42 +1068,54 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 						(sn.FLT == flt))
 		tcol = np.where(tflt == flt)
 		if mkplot:
-			sigma = np.sqrt(np.sum((sn.FLUXCAL[icol] - expectedvalues[i])**2.)/len(sn.FLUXCAL[icol]))
+			#sigma = np.sqrt(np.sum((sn.FLUXCAL[icol] - expectedvalues[i])**2.)/len(sn.FLUXCAL[icol]))
 			
 			# Plot fitted lightcurve #
-			plt.plot(tsmooth[tcol],model[tcol],color=cwheel[i])
+			
 			
 			# Add shaded area within 1*sigma of model #
 			# plt.fill_between(tsmooth[tcol], model[tcol] - sigma, model[tcol] + sigma,facecolor=cwheel[i],alpha=0.2)
 								
-            # Plot photometry #
-			i_outlier = np.fromiter((icol[0][j] for j in range(len(icol[0])) if sn.FLUXCAL[icol[0][j]] - FLUXCALERRNEW[icol[0][j]] > expectedvalues[i][j] + 3*sigma or sn.FLUXCAL[icol[0][j]] + FLUXCALERRNEW[icol[0][j]] < expectedvalues[i][j] - 3*sigma), int)
-		
+			# Plot photometry #
+			#i_outlier = np.fromiter((icol[0][j] for j in range(len(icol[0])) if sn.FLUXCAL[icol[0][j]] - FLUXCALERRNEW[icol[0][j]] > expectedvalues[i][j] + 3*sigma or sn.FLUXCAL[icol[0][j]] + FLUXCALERRNEW[icol[0][j]] < expectedvalues[i][j] - 3*sigma), int)
+			i_outlier = []
 			iclipped = np.setdiff1d(icol, i_outlier)
-						
-			plt.errorbar(sn.tobs[iclipped],sn.FLUXCAL[iclipped],
-						 yerr=sn.FLUXCALERR[iclipped],fmt='o',color=cwheel[i],label=flt)
+			if flt.lower() in cwheel:	
+				plt.plot(tsmooth[tcol],model[tcol],color=cwheel[flt.lower()])
+
+				plt.errorbar(sn.tobs[iclipped],sn.FLUXCAL[iclipped],
+						 yerr=sn.FLUXCALERR[iclipped],fmt='o',color=cwheel[flt.lower()],label=flt)
 			
 			# Data points removed from fitting via 3*sigma clipping #
-			plt.errorbar(sn.tobs[i_outlier],sn.FLUXCAL[i_outlier],
-						 yerr=sn.FLUXCALERR[i_outlier],fmt='x',color=cwheel[i])
-		
+				plt.errorbar(sn.tobs[i_outlier],sn.FLUXCAL[i_outlier],
+						 yerr=sn.FLUXCALERR[i_outlier],fmt='x',color=cwheel[flt.lower()])
+			else:
+				plt.plot(tsmooth[tcol],model[tcol])
+				plt.errorbar(sn.tobs[iclipped],sn.FLUXCAL[iclipped],
+						 yerr=sn.FLUXCALERR[iclipped],fmt='o',label=flt)
+			
+			# Data points removed from fitting via 3*sigma clipping #
+				plt.errorbar(sn.tobs[i_outlier],sn.FLUXCAL[i_outlier],
+						 yerr=sn.FLUXCALERR[i_outlier],fmt='x')
+
 			
 			# To look at plots of individual filters #
 			#icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) & (sn.tobs/(1+sn.z) <= tobsrange[1]+1))
-			#plt.xlim([min(sn.tobs[icol])-5,max(sn.tobs[icol])+5])
-			#plt.ylim([0,max(sn.FLUXCAL[icol])*4/3.])
-			#plt.legend(numpoints=1)
-			#plt.xlabel('Phase')
-			#plt.ylabel('Flux')
+			plt.xlim([min(sn.tobs[icol])-5,max(sn.tobs[icol])+5])
+			plt.ylim([0,max(sn.FLUXCAL[icol])*4/3.])
+			plt.legend(numpoints=1)
+			plt.xlabel('Phase')
+			plt.ylabel('Flux')
 			#plt.show()
+			plt.savefig('%s/%s.png'%(workdir, sn.SNID + flt))
+			plt.clf()
 			
-    # youngsn xlim is off
+	# youngsn xlim is off
 	if mkplot:
 		icol = np.where((sn.tobs/(1+sn.z) >= tobsrange[0]-1) &
 						(sn.tobs/(1+sn.z) <= tobsrange[1]+1))
 		plt.xlim([min(sn.tobs[icol])-5,max(sn.tobs[icol])+5])
-		plt.ylim([0,max(sn.FLUXCAL[icol])*4/3.])
+		plt.ylim([max(sn.FLUXCAL[icol])*(-1/10.),max(sn.FLUXCAL[icol])*4/3.])
 		plt.legend(numpoints=1)
 		plt.xlabel('Phase')
 		plt.ylabel('Flux')
@@ -1012,9 +1124,9 @@ def smoothlc(sn,tobsrange=[-30,90],mkplot=False,workdir='workdir',addpts=True,
 		plt.savefig('%s/%s.lcsmooth.png'%(workdir,sn.SNID))
 
 		ycol = np.where((sn.tobs/(1+sn.z) > tobsrange[0]) &
-						(sn.tobs/(1+sn.z) < tobsrange[0]+20))
-		plt.xlim([min(sn.tobs[ycol])-5, max(sn.tobs[ycol]) - 2])
-		plt.ylim([0,max(sn.FLUXCAL[ycol])*4/3.])
+						(sn.tobs/(1+sn.z) < tobsrange[0]+30))
+		plt.xlim([min(sn.tobs[ycol])-5, max(sn.tobs[ycol]) + 5])
+		plt.ylim([max(sn.FLUXCAL[ycol])*(-1/10.),max(sn.FLUXCAL[ycol])*4./3.])
 		#plt.show()
 		plt.savefig('%s/%s.lcsmooth.youngsn.png'%(workdir,sn.SNID))
 		
@@ -1247,6 +1359,7 @@ def doMangle(snid,z,niter=9,sntemp=None,
 		if mkplot:
 			aplot(sff.phase,sff.flux,fmod,nowfilt,np.unique(nowfilt),title='Starting Point for iter %i'%i)
 			pdf_pages.savefig(fig)
+			plt.close(fig)
 			fig = plt.figure()
 
 		norm = 1
@@ -1283,6 +1396,7 @@ def doMangle(snid,z,niter=9,sntemp=None,
 		if mkplot:
 			aplot(sff.phase,sff.flux,nmod,nowfilt,np.unique(nowfilt),title='mangled spectrum iter %i'%i)
 			pdf_pages.savefig(fig)
+			plt.close(fig)
 			fig = plt.figure()
 
 		nowflux = modelspec(out.x,nowflux,pxx,lxx,pwarp,ndeg,random)
@@ -1299,6 +1413,7 @@ def doMangle(snid,z,niter=9,sntemp=None,
 		if mkplot:
 			aplot(sff.phase,sff.flux,fmod,nowfilt,np.unique(nowfilt),title='mangled spectrum with synthetic photometry, iter %i'%i)
 			pdf_pages.savefig(fig)
+			plt.close(fig)
 			fig = plt.figure()		  
 
 		col = np.where(fmod <= 0)[0]
@@ -1331,6 +1446,7 @@ def doMangle(snid,z,niter=9,sntemp=None,
 		if mkplot:
 			aplot(sff.phase,sff.flux,fmod,nowfilt,np.unique(nowfilt),title='final clipped model')
 			pdf_pages.savefig(fig)
+			plt.close(fig)
 			fig = plt.figure()
 
 
@@ -1357,6 +1473,7 @@ def doMangle(snid,z,niter=9,sntemp=None,
 			plt.xlim([2000,9000])
 			plt.legend()
 			pdf_pages.savefig(fig)
+			plt.close(fig)
 			pdf_pages.close()
 	return(sedfn)
 
@@ -2107,7 +2224,7 @@ def amoeba(var,scale,func,ftolerance=1.e-5,
 		#if __debug__: print ssbest,fvalue[ssbest]
 
 def aplot(p,f,fmod,filt,ufilt,title=''):
-	import pylab as plt
+	import matplotlib.pylab as plt
 	nufilt = len(ufilt)
 
 	#!p.multi = [0,1,nufilt]
@@ -2261,7 +2378,7 @@ examples:
 		sys.exit(1)
 		
 	import numpy as np
-	import pylab as plt
+	import matplotlib.pylab as plt
 
 	mg.options = options
 	mg.verbose = options.verbose
