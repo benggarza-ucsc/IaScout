@@ -6,6 +6,7 @@ from scipy.optimize import least_squares
 import george
 from george import kernels
 from scipy.optimize import minimize
+import emcee
 
 class txtobj:
 	def __init__(self,filename):
@@ -762,15 +763,15 @@ class lightcurve_fit_george:
 
 
 		### The coefficient of the kernel changes the fit immensly ###
-		rise_kernel = kernels.ExpKernel(5.0)
-		fall_kernel = kernels.Matern32Kernel(5.0)
+		rise_kernel = np.var(rise_flux) * kernels.ExpKernel(5.0)
+		fall_kernel = np.var(fall_flux) * kernels.Matern32Kernel(5.0)
 		kernel = rise_kernel + fall_kernel
 
 		
 		self.gp = george.GP(kernel, white_noise=np.log(0.001*np.max(flux)))
 		self.gp.compute(scaled_time, fluxerr)
 
-		def neg_ln_like(p):
+		'''def neg_ln_like(p):
 			self.gp.set_parameter_vector(p)
 			return -self.gp.log_likelihood(flux)
 
@@ -778,15 +779,71 @@ class lightcurve_fit_george:
 			self.gp.set_parameter_vector(p)
 			return -self.gp.grad_log_likelihood(flux)
 
-		result = minimize(neg_ln_like, self.gp.get_parameter_vector(), jac=grad_neg_ln_like)
-		self.gp.set_parameter_vector(result.x)
+		result = minimize(neg_ln_like, self.gp.get_parameter_vector(), jac=grad_neg_ln_like)'''
+
+		init = np.array([0, 0, 0, t0, 40, -5])
+		ndim = len(init)
+		p0 = [np.array(init) + 1e-8 * np.random.randn(ndim) for i in xrange(nwalkers)]
+		sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=(time, flux, fluxerr))
+
+		print("Running burn-in...")
+		p0,_,_ = sampler.run_mcmc(p0, 500)
+		sampler.reset()
+
+		print("Running production...")
+		sampler.run_mcmc(p0, 1000)
+
+		samples = sampler.flatchain
+		for s in samples[np.random.randint(len(samples), size=24)]:
+			a, tau = np.exp(s[:2])
+			self.gp = george.GP(a * kernels.Matern32Kernel(tau))
+			self.gp.compute(scaled_time, fluxerr)
+
+
+		#self.gp.set_parameter_vector(result.x)
 		
 
-		#return self.gp
+		return self.gp
 		
 
 	def george(self, time, flux):
 		return self.gp.predict(flux,time,return_cov=False)
+
+	def model(params, time):
+
+		_,_,A, beta, c, tmax, tfall, trise = params
+
+		model = np.zeros(len(time))
+
+		trise,tfall = np.abs(trise),np.abs(tfall)
+		model[time < tmax] = 1
+		model[time >= tmax] = np.exp(-(time[time >= tmax]-tmax)/tfall)
+		model *= (A + beta*(time-tmax))
+		model *= 1/(1 + np.exp(-(time-tmax)/trise))
+		model += c
+
+		return model
+
+	def lnlike(p, t, y, yerr):
+		#return -0.5 * np.sum(((y-model(p,t))/yerr) **2)
+		# Change np.var(y) and 5.0 to something better
+		a, tau = np.exp(p[:2])
+		self.gp = george.GP(a * kernels.Matern32Kernel(tau))
+		self.gp.compute(t, yerr)
+		return self.gp.lnlikelihood(y - model(p, t))
+
+
+	def lnprior(p):
+		lna, lntau, A, beta, c, tmax, tfall, trise = p
+
+		if (-1 < A < 1):
+			return 0.0
+		return -np.inf
+
+	def lnprob(p, x, y, yerr):
+		lp = lnprior(p)
+		return lp + lnlike(p, x, y, yerr) if np.isfinite(lp) else -np.inf
+
 
 
 		
