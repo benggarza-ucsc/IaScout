@@ -784,7 +784,7 @@ class lightcurve_fit_george:
 		nwalkers = 5
 		init = np.array([0, 0, 0, t0, 40, -5])
 		ndim = len(init)
-		p0 = [np.array(init) + 1e-8 * np.random.randn(ndim) for i in xrange(nwalkers)]
+		p0 = [np.array(init) + 1e-8 * np.random.randn(ndim) for i in range(nwalkers)]
 		sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=(time, flux, fluxerr))
 
 		print("Running burn-in...")
