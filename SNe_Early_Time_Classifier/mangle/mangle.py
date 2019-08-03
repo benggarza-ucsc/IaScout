@@ -781,6 +781,7 @@ class lightcurve_fit_george:
 
 		result = minimize(neg_ln_like, self.gp.get_parameter_vector(), jac=grad_neg_ln_like)'''
 
+		nwalkers = 5
 		init = np.array([0, 0, 0, t0, 40, -5])
 		ndim = len(init)
 		p0 = [np.array(init) + 1e-8 * np.random.randn(ndim) for i in xrange(nwalkers)]
