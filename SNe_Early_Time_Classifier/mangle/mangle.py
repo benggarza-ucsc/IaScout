@@ -747,6 +747,8 @@ class lightcurve_fit_george:
 		self.gp = []
 
 	def fit(self, time, flux, fluxerr):
+
+		from george.modeling import Model
 		scaled_time = time - time.min()
 		t0 = scaled_time[flux.argmax()]
 		sys_fluxerr = self.syserror*flux
