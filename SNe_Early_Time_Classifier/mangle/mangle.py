@@ -794,18 +794,20 @@ class lightcurve_fit_george:
 		nwalkers = 2*ndim
 		sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob)
 
+		# 500 iterations takes about 2 mins on ziggy
 		print("Running first burn-in...")
 		p0 = init + 1e-8 * np.random.randn(nwalkers, ndim)
-		p0,lp,_ = sampler.run_mcmc(p0, 500)
+		p0,lp,_ = sampler.run_mcmc(p0, 200)
 		
 		print("Running second burn-in...")
 		p0 = p0[np.argmax(lp)] + 1e-8 * np.random.randn(nwalkers, ndim)
 		sampler.reset()
-		p0,_,_ = sampler.run_mcmc(p0, 500)
+		p0,_,_ = sampler.run_mcmc(p0, 200)
 		sampler.reset()
 
+		# 1000 iterations takes about 3 mins
 		print("Running production...")
-		sampler.run_mcmc(p0, 1000)
+		sampler.run_mcmc(p0, 500)
 
 		samples = sampler.flatchain
 		for s in samples[np.random.randint(len(samples), size=24)]:
