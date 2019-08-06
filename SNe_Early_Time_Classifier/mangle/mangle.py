@@ -1970,12 +1970,12 @@ def getfmod(nowp, nowfilt, nowlam,
 	for i in range(len(nfu)):
 
 		if 'Bessell' in nfu[i]:
-			standard =  '/home/ben/git/SN-Classifier/SNe_Early_Time_Classifier/templates/flatnu.dat' # '$SNDATA_ROOT/standards/vegased_2004_stis.txt'
+			standard =  '../templates/flatnu.dat' # '$SNDATA_ROOT/standards/vegased_2004_stis.txt'
 		else:
-			standard = '/home/ben/git/SN-Classifier/SNe_Early_Time_Classifier/templates/flatnu.dat' #'$SNDATA_ROOT/standards/flatnu.dat'
+			standard = '../templates/flatnu.dat' #'$SNDATA_ROOT/standards/flatnu.dat'
 		if ab:
 			print('HAAAAAACK AB MAGS FOR 2012fr!!!')
-			standard = '/home/ben/git/SN-Classifier/SNe_Early_Time_Classifier/templates/flatnu.dat' # '$SNDATA_ROOT/standards/flatnu.dat'
+			standard = '../templates/flatnu.dat' # '$SNDATA_ROOT/standards/flatnu.dat'
 			
 		fnu1,fnu2 = np.loadtxt(os.path.expandvars(standard),unpack=True)
 		filt1,filt2 = np.loadtxt(nfu[i],unpack=True)
