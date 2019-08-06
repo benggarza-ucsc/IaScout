@@ -772,7 +772,7 @@ class lightcurve_fit_george:
 
 
 		
-		self.gp = george.GP(kernel, mean=GeorgeModel(A=1, beta=0, c=0, tmax=t0, tfall=40, trise=-5))
+		self.gp = george.GP(kernel, mean=self.GeorgeModel(A=1, beta=0, c=0, tmax=t0, tfall=40, trise=-5))
 		self.gp.compute(scaled_time, fluxerr)
 
 		def lnprob(p):
