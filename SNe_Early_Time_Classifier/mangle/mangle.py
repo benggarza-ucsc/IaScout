@@ -742,13 +742,14 @@ class lightcurve_fit_mcmc:
 
 
 class lightcurve_fit_george:
+	from george.modeling import Model
+
+
 	def __init__(self):
 		self.syserror = 0.02
 		self.gp = []
 
 	def fit(self, time, flux, fluxerr):
-
-		from george.modeling import Model
 		scaled_time = time - time.min()
 		t0 = scaled_time[flux.argmax()]
 		sys_fluxerr = self.syserror*flux
