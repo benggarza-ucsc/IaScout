@@ -777,7 +777,7 @@ class lightcurve_fit_george:
 
 		def lnprob(p):
 			self.gp.set_parameter_vector(p)
-			return self.gp.log_likelihood(flux, quiet=True) + self.gp.log_prior
+			return self.gp.log_likelihood(flux, quiet=True) + self.gp.log_prior()
 
 		'''def neg_ln_like(p):
 			self.gp.set_parameter_vector(p)
