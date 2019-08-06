@@ -767,9 +767,14 @@ class lightcurve_fit_george:
 		fall_kernel = np.var(fall_flux) * kernels.Matern32Kernel(5.0)
 		kernel = rise_kernel + fall_kernel
 
+
 		
-		self.gp = george.GP(kernel, white_noise=np.log(0.001*np.max(flux)))
+		self.gp = george.GP(kernel, mean=GeorgeModel(A=1, beta=0, c=0, tmax=t0, tfall=40, trise=-5))
 		self.gp.compute(scaled_time, fluxerr)
+
+		def lnprob(p):
+			self.gp.set_parameter_vector(p)
+			return self.gp.log_likelihood(flux, quiet=True) + self.gp.log_prior
 
 		'''def neg_ln_like(p):
 			self.gp.set_parameter_vector(p)
@@ -781,13 +786,18 @@ class lightcurve_fit_george:
 
 		result = minimize(neg_ln_like, self.gp.get_parameter_vector(), jac=grad_neg_ln_like)'''
 
-		init = np.array([0, 0, 0, t0, 40, -5])
+		init = self.gp.get_parameter_vector()
 		ndim = len(init)
 		nwalkers = 2*ndim
-		p0 = [np.array(init) + 1e-8 * np.random.randn(ndim) for i in range(nwalkers)]
-		sampler = emcee.EnsembleSampler(nwalkers, ndim, self.lnprob, args=(time, flux, fluxerr))
+		sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob)
 
-		print("Running burn-in...")
+		print("Running first burn-in...")
+		p0 = init + 1e-8 * np.random.randn(nwalkers, ndim)
+		p0,lp,_ = sampler.run_mcmc(p0, 500)
+		
+		print("Running second burn-in...")
+		p0 = p0[np.argmax(lp)] + 1e-8 * np.random.randn(nwalkers, ndim)
+		sampler.reset()
 		p0,_,_ = sampler.run_mcmc(p0, 500)
 		sampler.reset()
 
@@ -796,9 +806,7 @@ class lightcurve_fit_george:
 
 		samples = sampler.flatchain
 		for s in samples[np.random.randint(len(samples), size=24)]:
-			a, tau = np.exp(s[:2])
-			self.gp = george.GP(a * kernels.Matern32Kernel(tau))
-			self.gp.compute(scaled_time, fluxerr)
+			self.gp.set_parameter_vector(s)
 
 
 		#self.gp.set_parameter_vector(result.x)
@@ -810,21 +818,25 @@ class lightcurve_fit_george:
 	def george(self, time, flux):
 		return self.gp.predict(flux,time,return_cov=False)
 
-	def model(params, time):
 
-		_,_,A, beta, c, tmax, tfall, trise = params
+	class GeorgeModel(Model):
+		parameter_names = ("A", "beta", "c", "tmax", "tfall", "trise")
 
-		model = np.zeros(len(time))
+		def get_value(self, time):
 
-		trise,tfall = np.abs(trise),np.abs(tfall)
-		model[time < tmax] = 1
-		model[time >= tmax] = np.exp(-(time[time >= tmax]-tmax)/tfall)
-		model *= (A + beta*(time-tmax))
-		model *= 1/(1 + np.exp(-(time-tmax)/trise))
-		model += c
+			model = np.zeros(len(time))
 
-		return model
+			self.trise, self.tfall = np.abs(self.trise), np.abs(self.tfall)
+			model[time < self.tmax] = 1
+			model[time >= self.tmax] = np.exp(-(time[time >= self.tmax]-self.tmax)/self.tfall)
+			model *= (self.A + self.beta*(time-self.tmax))
+			model *= 1/(1 + np.exp(-(time-self.tmax)/self.trise))
+			model += self.c
 
+			return model
+
+
+'''
 	def lnlike(p, t, y, yerr):
 		#return -0.5 * np.sum(((y-model(p,t))/yerr) **2)
 		# Change np.var(y) and 5.0 to something better
@@ -840,10 +852,7 @@ class lightcurve_fit_george:
 		if (-1 < A < 1):
 			return 0.0
 		return -np.inf
-
-	def lnprob(p, x, y, yerr):
-		lp = lnprior(p)
-		return lp + lnlike(p, x, y, yerr) if np.isfinite(lp) else -np.inf
+		'''
 
 
 
