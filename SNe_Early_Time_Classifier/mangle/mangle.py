@@ -2098,7 +2098,7 @@ def meritfunc(x,p=None,f=None,fluxerr=None,fmod=None,px=None,lx=None,
 	cols = np.where(model >= 0)
 
 	merit = np.sum(((f[cols] - model[cols])/err[cols])**2.)
-	print(merit)
+	#print(merit)
 	return(merit)
 
 def poly(x,c):
