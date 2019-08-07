@@ -754,7 +754,7 @@ class lightcurve_fit_george:
 		t0 = scaled_time[flux.argmax()]
 		sys_fluxerr = self.syserror*flux
 		tot_fluxerr = np.sqrt(sys_fluxerr**2. + fluxerr**2.)
-
+		'''
 		rise_time = scaled_time[:flux.argmax()+1]
 		fall_time = scaled_time[flux.argmax():]
 
@@ -763,16 +763,18 @@ class lightcurve_fit_george:
 
 		rise_fluxerr = tot_fluxerr[:flux.argmax()+1]
 		fall_fluxerr = tot_fluxerr[flux.argmax():]
-
+		
 
 		### The coefficient of the kernel changes the fit immensly ###
 		rise_kernel = np.var(rise_flux) * kernels.ExpKernel(5.0)
 		fall_kernel = np.var(fall_flux) * kernels.Matern32Kernel(5.0)
 		kernel = rise_kernel + fall_kernel
+		'''
+
 
 
 		
-		self.gp = george.GP(kernel, mean=self.GeorgeModel(A=1, beta=0, c=0, tmax=t0, tfall=40, trise=-5))
+		self.gp = george.GP(kernel=np.var(flux) * kernels.Matern32Kernel(5.0), mean=self.GeorgeModel(A=1, beta=0, c=0, tmax=t0, tfall=40, trise=-5))
 		self.gp.compute(scaled_time, fluxerr)
 
 		def lnprob(p):
