@@ -1,10 +1,29 @@
 #!/bin/bash
-if [ $2 = 'mcmc' ]
-then
-	python mangle.py  "LightCurves/Ia/${1}.snana.dat" "LightCurves/Ia/${1}.sed" --mkplot --filterfiles U,B,V,R,I,u,g,r,i,z Bessell90_U.dat,Bessell90_B.dat,Bessell90_V.dat,Bessell90_R.dat,Bessell90_I.dat,u.dat,g.dat,r.dat,i.dat,z.dat --smoothlc --smoothfunc='mcmc' --clobber --filtpath LightCurves/filters
-fi
 
-if [ $2 = 'george' ]
+echo "Mangling $1"
+if [ $1 = 'all' ]
 then
-	python mangle.py  "LightCurves/Ia/${1}.snana.dat" "LightCurves/Ia/${1}.sed" --mkplot --filterfiles U,B,V,R,I,u,g,r,i,z Bessell90_U.dat,Bessell90_B.dat,Bessell90_V.dat,Bessell90_R.dat,Bessell90_I.dat,u.dat,g.dat,r.dat,i.dat,z.dat --smoothlc --smoothfunc='george' --clobber --filtpath LightCurves/filters
+	for f in LightCurves/Ia/SN*.sed
+	do
+		echo "Mangling ${f%%.*}"
+		if [ $2 = 'mcmc' ]
+		then
+			python3 mangle.py  "${f%%.*}.snana.dat" "${f%%.*}.sed" --mkplot --filterfiles U,B,V,R,I,u,g,r,i,z Bessell90_U.dat,Bessell90_B.dat,Bessell90_V.dat,Bessell90_R.dat,Bessell90_I.dat,u.dat,g.dat,r.dat,i.dat,z.dat --smoothlc --smoothfunc='mcmc' --clobber --filtpath LightCurves/filters
+		fi
+		
+		if [ $2 = 'george' ]
+		then
+			python3 mangle.py  "${f%%.*}.snana.dat" "${f%%.*}.sed" --mkplot --filterfiles U,B,V,R,I,u,g,r,i,z Bessell90_U.dat,Bessell90_B.dat,Bessell90_V.dat,Bessell90_R.dat,Bessell90_I.dat,u.dat,g.dat,r.dat,i.dat,z.dat --smoothlc --smoothfunc='george' --clobber --filtpath LightCurves/filters
+		fi
+	done
+else
+	if [ $2 = 'mcmc' ]
+        then
+        	python3 mangle.py  "LightCurves/Ia/${1}.snana.dat" "LightCurves/Ia/${1}.sed" --mkplot --filterfiles U,B,V,R,I,u,g,r,i,z Bessell90_U.dat,Bessell90_B.dat,Bessell90_V.dat,Bessell90_R.dat,Bessell90_I.dat,u.dat,g.dat,r.dat,i.dat,z.dat --smoothlc --smoothfunc='mcmc' --clobber --filtpath LightCurves/filters
+         fi
+
+         if [ $2 = 'george' ]
+         then
+                        python3 mangle.py  "LightCurves/Ia/${1}.snana.dat" "LightCurves/Ia/${1}.sed" --mkplot --filterfiles U,B,V,R,I,u,g,r,i,z Bessell90_U.dat,Bessell90_B.dat,Bessell90_V.dat,Bessell90_R.dat,Bessell90_I.dat,u.dat,g.dat,r.dat,i.dat,z.dat --smoothlc --smoothfunc='george' --clobber --filtpath LightCurves/filters
+         fi
 fi

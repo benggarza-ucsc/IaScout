@@ -774,50 +774,76 @@ class lightcurve_fit_george:
 
 
 		
-		self.gp = george.GP(kernel=np.var(flux) * kernels.Matern32Kernel(5.0), mean=self.GeorgeModel(A=1, beta=0, c=0, tmax=t0, tfall=40, trise=-5))
-		self.gp.compute(scaled_time, fluxerr)
+		self.gp = george.GP(kernel=np.var(flux) * kernels.Matern32Kernel(1.0), mean=np.mean(flux))
+		self.gp.compute(scaled_time, tot_fluxerr)
+
+		# Observe parameter relationship #
+		'''
+		for p in np.arange(-1, 1, 0.1):
+			for v in np.arange(9, 10, 1):
+				self.gp.set_parameter_vector([p,v])
+				x = np.linspace(-30, 100, 500)
+				mu = self.gp.sample_conditional(flux, x)
+				plt.plot(x, mu)
+				plt.title('p=%d, v=%d'%(p,v))
+				plt.show()
+				'''
+
+
 
 		def lnprob(p):
 			self.gp.set_parameter_vector(p)
 			return self.gp.log_likelihood(flux, quiet=True) + self.gp.log_prior()
 
-		'''def neg_ln_like(p):
-			self.gp.set_parameter_vector(p)
-			return -self.gp.log_likelihood(flux)
-
-		def grad_neg_ln_like(p):
-			self.gp.set_parameter_vector(p)
-			return -self.gp.grad_log_likelihood(flux)
-
-		result = minimize(neg_ln_like, self.gp.get_parameter_vector(), jac=grad_neg_ln_like)'''
 
 		init = self.gp.get_parameter_vector()
 		ndim = len(init)
-		nwalkers = 2*ndim
+		nwalkers = 3*ndim
 		sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob)
 
 		# 500 iterations takes about 2 mins on ziggy
 		print("Running first burn-in...")
 		p0 = init + 1e-8 * np.random.randn(nwalkers, ndim)
-		p0,lp,_ = sampler.run_mcmc(p0, 200)
+		p0,lp,_ = sampler.run_mcmc(p0, 1000)
 		
 		print("Running second burn-in...")
 		p0 = p0[np.argmax(lp)] + 1e-8 * np.random.randn(nwalkers, ndim)
 		sampler.reset()
-		p0,_,_ = sampler.run_mcmc(p0, 200)
+		p0,_,_ = sampler.run_mcmc(p0, 1000)
 		sampler.reset()
 
 		# 1000 iterations takes about 3 mins
 		print("Running production...")
-		sampler.run_mcmc(p0, 500)
+		sampler.run_mcmc(p0, 5000)
 
-		samples = sampler.flatchain
+		x = np.linspace(-30, 100, 500)
+
+		samples = sampler.chain[:,50:,:].reshape((-1, ndim))
+		#samples[:,?] = np.exp(samples[:,?])
+		# What method to get result?
+		p = (map(lambda v: (), zip(*np.percentile(samples, [16,50,84],axis=0))))
+
+		self.gp.set_parameter_vector(samples[-1])
+
+		'''from matplotlib import cm
+		import corner
+		corner.corner(samples,label_kwargs=None, title_kwargs=None, hist_kwargs=None, cmap=plt.get_cmap('viridis'))
+		plt.show()'''
+
+		'''
+		plt.errorbar(scaled_time, flux, yerr=tot_fluxerr, fmt=".k", capsize=0)
+
+
 		for s in samples[np.random.randint(len(samples), size=24)]:
 			self.gp.set_parameter_vector(s)
+			mu = self.gp.sample_conditional(flux, x)
+			plt.plot(x, mu, color="#4682b4", alpha=0.3)
 
-
-		#self.gp.set_parameter_vector(result.x)
-		
+		plt.ylabel(r"$flux$")
+		plt.xlabel(r"$t$")
+		plt.xlim(-30, 100)
+		plt.show()
+		'''
 
 		return self.gp
 		
@@ -841,25 +867,7 @@ class lightcurve_fit_george:
 			model += self.c
 
 			return model
-
-
-'''
-	def lnlike(p, t, y, yerr):
-		#return -0.5 * np.sum(((y-model(p,t))/yerr) **2)
-		# Change np.var(y) and 5.0 to something better
-		a, tau = np.exp(p[:2])
-		self.gp = george.GP(a * kernels.Matern32Kernel(tau))
-		self.gp.compute(t, yerr)
-		return self.gp.lnlikelihood(y - model(p, t))
-
-
-	def lnprior(p):
-		lna, lntau, A, beta, c, tmax, tfall, trise = p
-
-		if (-1 < A < 1):
-			return 0.0
-		return -np.inf
-		'''
+		
 
 
 
